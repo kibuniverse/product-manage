@@ -17,15 +17,14 @@ pub struct BasicAuth {
 impl BasicAuth {
     // target Basic base64
     // aim username password
-    fn form_header(auth_str: &str) -> Option<BasicAuth> {
+    fn from_header(auth_str: &str) -> Option<BasicAuth> {
         let split_vec = auth_str.split_whitespace().collect::<Vec<_>>();
-        match split_vec.len() {
-            2 => match split_vec[0] {
-                "Basic" => Self::parse_base64(split_vec[1]),
-                _ => None,
-            },
-            _ => None,
+
+        if split_vec.len() != 2 && split_vec[0] != "Basic" {
+            return None;
         }
+
+        Self::parse_base64(split_vec[1])
     }
     fn parse_base64(base64_str: &str) -> Option<BasicAuth> {
         let decoded = decode(base64_str).ok()?;
@@ -41,12 +40,13 @@ impl<'r> FromRequest<'r> for BasicAuth {
     type Error = ();
     async fn from_request(request: &'r rocket::Request<'_>) -> Outcome<Self, Self::Error> {
         let header_auth = request.headers().get_one("Authorization");
-        if let Some(header_auth) = header_auth {
-            if let Some(auth) = Self::form_header(header_auth) {
-                return Outcome::Success(auth);
-            }
+        match header_auth {
+            Some(auth_str) => match BasicAuth::from_header(auth_str) {
+                Some(auth) => Outcome::Success(auth),
+                None => Outcome::Failure((Status::Unauthorized, ())),
+            },
+            None => Outcome::Failure((Status::Unauthorized, ())),
         }
-        Outcome::Failure((Status::Unauthorized, ()))
     }
 }
 
@@ -57,7 +57,7 @@ fn index() -> Value {
 
 #[get("/list")]
 fn product(auth: BasicAuth) -> Value {
-    json!("list")
+    json!(auth.username)
 }
 
 #[delete("/<id>")]
